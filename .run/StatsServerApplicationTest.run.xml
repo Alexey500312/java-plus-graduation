@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="StatsServerApplicationTest" type="Application" factoryName="Application">
+  <configuration default="false" name="StatsServerApplicationTest" type="Application" factoryName="Application" singleton="false">
     <option name="MAIN_CLASS_NAME" value="ewm.StatsServerApplication" />
     <module name="stats-server" />
     <option name="VM_PARAMETERS" value="-Dspring.profiles.active=test" />
