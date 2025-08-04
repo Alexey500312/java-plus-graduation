@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native
+  cloud:
+    config:
+      server:
+        native:
+          searchLocations:
+            - classpath:config/infra/{application}
+            - classpath:config/core/{application}
+            - classpath:config/stats/{application}
+eureka:
+  instance:
+    discovery-hostname: localhost
+    discovery-port: 8761
+    preferIpAddress: true
+    hostname: localhost
+    instance-id: "${spring.application.name}:${random.value}"
+    leaseRenewalIntervalInSeconds: 10
+  client:
+    serviceUrl:
+      defaultZone: http://${eureka.instance.discovery-hostname}:${eureka.instance.discovery-port}/eureka/
+
+server:
+  port: 0

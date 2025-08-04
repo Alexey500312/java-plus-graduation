@@ -1,0 +1,23 @@
+spring:
+  cloud:
+    gateway:
+      discovery.locator.enabled: true
+      routes:
+        - id: main_service_route
+          uri: lb://main-service
+          predicates:
+            - Path=/admin/**,/categories/**,/comments/**,/compilations/**,/events/**,/users/**
+          filters:
+            - name: Retry
+              args:
+                retries: 3
+                statuses: NOT_FOUND
+                methods: GET,POST,PUT,PATCH,DELETE
+                backoff:
+                  firstBackoff: 10ms
+                  maxBackoff: 50ms
+                  factor: 2
+                  basedOnPreviousValue: false
+
+server:
+  port: 8080
