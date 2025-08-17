@@ -28,3 +28,5 @@ services:
       timeout: 5s
       interval: 5s
       retries: 10
+    volumes:
+      - /opt/initsql/init-database.sh:/docker-entrypoint-initdb.d/init-database.sh
