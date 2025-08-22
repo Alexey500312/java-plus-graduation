@@ -34,3 +34,11 @@ resilience4j.circuitbreaker:
 
 server:
   port: 0
+
+grpc:
+  client:
+    collector:
+      address: 'discovery:///collector'
+      enableKeepAlive: true
+      keepAliveWithoutCalls: true
+      negotiationType: plaintext

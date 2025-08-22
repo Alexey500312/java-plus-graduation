@@ -1,11 +1,11 @@
 package ewm.event;
 
-import ewm.CreateEndpointHitDto;
-import ewm.client.StatsClient;
+import ewm.client.CollectorClient;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import ru.practicum.dto.event.EventDto;
@@ -30,9 +30,9 @@ public class PublicEventController {
     private final EventService eventService;
 
     /**
-     * Клиент сервиса статистики.
+     * Grpc клиент для регистрации активности пользователя по событиям.
      */
-    private final StatsClient statsClient;
+    private final CollectorClient collectorClient;
 
     /**
      * Получить коллекцию событий.
@@ -60,45 +60,68 @@ public class PublicEventController {
                                                @RequestParam(defaultValue = "0") int from,
                                                @RequestParam(defaultValue = "10") int size,
                                                HttpServletRequest request) {
-        try {
-            EventSearch eventSearch = EventSearch.builder()
-                    .text(text)
-                    .categories(categories)
-                    .paid(paid)
-                    .rangeStart(rangeStart != null ? LocalDateTime.parse(rangeStart, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null)
-                    .rangeEnd(rangeEnd != null ? LocalDateTime.parse(rangeEnd, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null)
-                    .onlyAvailable(onlyAvailable)
-                    .sort(sort)
-                    .from(from)
-                    .size(size)
-                    .build();
+        EventSearch eventSearch = EventSearch.builder()
+                .text(text)
+                .categories(categories)
+                .paid(paid)
+                .rangeStart(rangeStart != null ? LocalDateTime.parse(rangeStart, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null)
+                .rangeEnd(rangeEnd != null ? LocalDateTime.parse(rangeEnd, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null)
+                .onlyAvailable(onlyAvailable)
+                .sort(sort)
+                .from(from)
+                .size(size)
+                .build();
 
-            return eventService.getPublishedEvents(eventSearch);
-        } finally {
-            try {
-                statsClient.sendHit(new CreateEndpointHitDto("ewm-main-service", request.getRequestURI(), request.getRemoteAddr(), LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-            } catch (Exception ex) {
-                log.error(ex.getMessage());
-            }
-        }
+        return eventService.getPublishedEvents(eventSearch);
     }
 
     /**
      * Получить информацию об опубликованном событии.
      *
+     * @param userId  идентификатор пользователя.
      * @param eventId идентификатор события.
      * @return трансферный объект, содержащий данные о событии.
      */
     @GetMapping("/{eventId}")
-    public EventDto getPublishedEventById(@PathVariable @Positive Long eventId, HttpServletRequest request) {
+    public EventDto getPublishedEventById(@RequestHeader("X-EWM-USER-ID") @Positive Long userId,
+                                          @PathVariable @Positive Long eventId,
+                                          HttpServletRequest request) {
+        EventDto result = eventService.getPublishedEventById(eventId);
+
         try {
-            return eventService.getPublishedEventById(eventId);
-        } finally {
-            try {
-                statsClient.sendHit(new CreateEndpointHitDto("ewm-main-service", request.getRequestURI(), request.getRemoteAddr(), LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-            } catch (Exception ex) {
-                log.error(ex.getMessage());
-            }
+            collectorClient.saveView(userId, eventId);
+        } catch (Exception ex) {
+            log.error(ex.getMessage());
+        }
+
+        return result;
+    }
+
+    @GetMapping("/recommendations")
+    public Collection<EventShortDto> getRecommendations(@RequestHeader("X-EWM-USER-ID") @Positive Long userId,
+                                                        @RequestParam(name = "maxResults", defaultValue = "10") Integer maxResults,
+                                                        HttpServletRequest request) {
+        return eventService.getRecommendations(userId, maxResults);
+    }
+
+    @GetMapping("/{eventId}/similar")
+    public Collection<EventShortDto> getSimilarEvents(@RequestHeader("X-EWM-USER-ID") @Positive Long userId,
+                                                      @PathVariable("eventId") Long eventId,
+                                                      @RequestParam(name = "maxResults", defaultValue = "10") Integer maxResults,
+                                                      HttpServletRequest request) {
+        return eventService.getSimilarEvents(userId, eventId, maxResults);
+    }
+
+    @PutMapping("/{eventId}/like")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void putLike(@RequestHeader("X-EWM-USER-ID") @Positive Long userId,
+                        @PathVariable @Positive Long eventId,
+                        HttpServletRequest request) {
+        eventService.putLike(userId, eventId);
+        try {
+            collectorClient.saveLike(userId, eventId);
+        } catch (Exception ex) {
+            log.error(ex.getMessage());
         }
     }
 }

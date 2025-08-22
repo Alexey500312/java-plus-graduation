@@ -132,6 +132,12 @@ public class ParticipationRequestSeviceImpl implements ParticipationRequestServi
         return getResultParticipationRequestStatusDto(requests);
     }
 
+    @Override
+    public Boolean checkParticipationRequestConfirmed(Long userId, Long eventId) {
+        Optional<ParticipationRequest> participationRequest = participationRequestRepository.findByRequesterIdAndEventId(userId, eventId);
+        return participationRequest.isPresent() && ParticipationRequestStatus.CONFIRMED.equals(participationRequest.get().getStatus());
+    }
+
     private UserDto findUserById(Long userId) {
         List<Long> userIds = new ArrayList<>();
         userIds.add(userId);

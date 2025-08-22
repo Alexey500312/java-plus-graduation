@@ -92,4 +92,10 @@ public interface EventService {
 
     ResultParticipationRequestStatusDto updateParticipationRequestStatus(
             Long userId, long eventId, UpdateParticipationRequestStatusDto updateParticipationRequestStatusDto);
+
+    Collection<EventShortDto> getRecommendations(Long userId, Integer maxResults);
+
+    Collection<EventShortDto> getSimilarEvents(Long userId, Long eventId, Integer maxResults);
+
+    void putLike(Long userId, Long eventId);
 }
