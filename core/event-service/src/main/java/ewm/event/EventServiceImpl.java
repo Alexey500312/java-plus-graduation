@@ -4,10 +4,11 @@ import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.types.Predicate;
 import ewm.category.Category;
 import ewm.category.CategoryRepository;
-import ewm.client.StatsClient;
+import ewm.client.RecommendationsClient;
 import ewm.feign.RequestClient;
 import ewm.feign.UserClient;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -16,10 +17,8 @@ import ru.practicum.dto.request.ParticipationRequestDto;
 import ru.practicum.dto.request.ResultParticipationRequestStatusDto;
 import ru.practicum.dto.request.UpdateParticipationRequestStatusDto;
 import ru.practicum.dto.user.UserDto;
-import ru.practicum.exception.CreateEntityException;
-import ru.practicum.exception.ForbiddenException;
-import ru.practicum.exception.NotFoundException;
-import ru.practicum.exception.UpdateEntityException;
+import ru.practicum.ewm.stats.recommended.RecommendedEventProto;
+import ru.practicum.exception.*;
 import ru.practicum.pageble.PageOffset;
 
 import java.time.LocalDateTime;
@@ -30,6 +29,7 @@ import java.util.stream.Collectors;
 /**
  * Сервис для сущности "Событие".
  */
+@Slf4j
 @RequiredArgsConstructor
 @Service
 public class EventServiceImpl implements EventService {
@@ -49,14 +49,14 @@ public class EventServiceImpl implements EventService {
     private final UserClient userClient;
 
     /**
-     * Клиент статистики
-     */
-    private final StatsClient statsClient;
-
-    /**
      * Feign клиент для сущности "Запрос на участие".
      */
     private final RequestClient requestClient;
+
+    /**
+     * Grpc клиент для получения рекомендаций и рейтинга по событиям.
+     */
+    private final RecommendationsClient recommendationsClient;
 
     /**
      * Добавить новое событие.
@@ -77,12 +77,14 @@ public class EventServiceImpl implements EventService {
         event.setInitiatorId(user.getId());
         event.setCategory(category);
 
+        event = eventRepository.save(event);
+
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(List.of(event)))
                 .users(getUsers(user))
                 .build();
 
-        return EventMapper.INSTANCE.toEventDto(eventRepository.save(event), context);
+        return EventMapper.INSTANCE.toEventDto(event, context);
     }
 
     /**
@@ -99,12 +101,14 @@ public class EventServiceImpl implements EventService {
         Predicate predicate = QEvent.event.initiatorId.eq(userId);
         PageOffset pageOffset = PageOffset.of(from, size, Sort.by("id").ascending());
 
+        Collection<Event> events = eventRepository.findAll(predicate, pageOffset).getContent();
+
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(events))
                 .users(getUsers(user))
                 .build();
 
-        return EventMapper.INSTANCE.toEventDtoCollection(eventRepository.findAll(predicate, pageOffset).getContent(), context);
+        return EventMapper.INSTANCE.toEventDtoCollection(events, context);
     }
 
     /**
@@ -117,7 +121,7 @@ public class EventServiceImpl implements EventService {
         Collection<Event> events = getEventsInternal(search);
 
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(events))
                 .users(getUsers(events))
                 .build();
 
@@ -134,7 +138,7 @@ public class EventServiceImpl implements EventService {
         Collection<Event> events = getEventsInternal(search);
 
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(events))
                 .users(getUsers(events))
                 .build();
 
@@ -214,7 +218,7 @@ public class EventServiceImpl implements EventService {
         }
 
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(List.of(event)))
                 .users(getUsers(user))
                 .build();
 
@@ -235,7 +239,7 @@ public class EventServiceImpl implements EventService {
         }
 
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(List.of(event)))
                 .users(getUsers(List.of(event)))
                 .build();
 
@@ -315,7 +319,7 @@ public class EventServiceImpl implements EventService {
         }
 
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(List.of(event)))
                 .users(getUsers(user))
                 .build();
 
@@ -391,7 +395,7 @@ public class EventServiceImpl implements EventService {
         }
 
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(List.of(event)))
                 .users(getUsers(List.of(event)))
                 .build();
 
@@ -403,7 +407,7 @@ public class EventServiceImpl implements EventService {
         Event event = eventRepository.findById(eventId).orElseThrow(() -> new NotFoundException(String.format("Событие с id = %d не найдено", eventId)));
 
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(List.of(event)))
                 .users(getUsers(List.of(event)))
                 .build();
 
@@ -415,7 +419,7 @@ public class EventServiceImpl implements EventService {
         Collection<Event> events = eventRepository.findAllById(eventIds);
 
         EventMapperContext context = EventMapperContext.builder()
-                .statsClient(statsClient)
+                .ratingEvents(getRatingEvents(events))
                 .users(getUsers(events))
                 .build();
 
@@ -437,6 +441,49 @@ public class EventServiceImpl implements EventService {
     @Override
     public ResultParticipationRequestStatusDto updateParticipationRequestStatus(Long userId, long eventId, UpdateParticipationRequestStatusDto updateParticipationRequestStatusDto) {
         return requestClient.updateParticipationRequestStatus(updateParticipationRequestStatusDto, userId, eventId);
+    }
+
+    @Override
+    public Collection<EventShortDto> getRecommendations(Long userId, Integer maxResults) {
+        final Map<Long, Double> recommendations = analyzeRecommendations(userId, maxResults);
+
+        Collection<Event> events = eventRepository.findAllById(recommendations.keySet());
+
+        EventMapperContext context = EventMapperContext.builder()
+                .ratingEvents(getRatingEvents(events))
+                .users(getUsers(events))
+                .build();
+
+        return EventMapper.INSTANCE.toEventShortDtoCollection(
+                events.stream()
+                        .sorted(Comparator.comparing(e -> recommendations.get(((Event) e).getId())).reversed())
+                        .toList(),
+                context);
+    }
+
+    @Override
+    public Collection<EventShortDto> getSimilarEvents(Long userId, Long eventId, Integer maxResults) {
+        final Map<Long, Double> similar = getSimilar(userId, eventId, maxResults);
+
+        Collection<Event> events = eventRepository.findAllById(similar.keySet());
+
+        EventMapperContext context = EventMapperContext.builder()
+                .ratingEvents(getRatingEvents(events))
+                .users(getUsers(events))
+                .build();
+
+        return EventMapper.INSTANCE.toEventShortDtoCollection(
+                events.stream()
+                        .sorted(Comparator.comparing(e -> similar.get(((Event) e).getId())).reversed())
+                        .toList(),
+                context);
+    }
+
+    @Override
+    public void putLike(Long userId, Long eventId) {
+        if (!requestClient.checkParticipationRequestConfirmed(userId, eventId)) {
+            throw new IncorrectlyException("Пользователь может лайкать только посещённые им мероприятия");
+        }
     }
 
     /**
@@ -473,6 +520,40 @@ public class EventServiceImpl implements EventService {
             result.put(userDto.getId(), userDto);
         }
         return result;
+    }
 
+    private Map<Long, Double> getRatingEvents(Collection<Event> events) {
+        List<Long> eventIds = events.stream()
+                .map(Event::getId)
+                .toList();
+        try {
+            return recommendationsClient.getInteractionsCount(eventIds)
+                    .collect(Collectors.toMap(RecommendedEventProto::getEventId, RecommendedEventProto::getScore));
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+        return new HashMap<>();
+    }
+
+    private Map<Long, Double> analyzeRecommendations(Long userId, Integer maxResults) {
+        Map<Long, Double> recommendations = new HashMap<>();
+        try {
+            recommendations = recommendationsClient.getRecommendationsForUser(userId, maxResults)
+                    .collect(Collectors.toMap(RecommendedEventProto::getEventId, RecommendedEventProto::getScore));
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+        return recommendations;
+    }
+
+    private Map<Long, Double> getSimilar(Long userId, Long eventId, Integer maxResults) {
+        Map<Long, Double> similar = new HashMap<>();
+        try {
+            similar = recommendationsClient.getSimilarEvents(eventId, userId, maxResults)
+                    .collect(Collectors.toMap(RecommendedEventProto::getEventId, RecommendedEventProto::getScore));
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+        return similar;
     }
 }

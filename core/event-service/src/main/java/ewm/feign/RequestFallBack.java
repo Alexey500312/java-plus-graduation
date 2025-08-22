@@ -21,4 +21,9 @@ public class RequestFallBack implements RequestOperations {
                 .rejectedRequests(List.of())
                 .build();
     }
+
+    @Override
+    public Boolean checkParticipationRequestConfirmed(Long userId, Long eventId) {
+        return false;
+    }
 }

@@ -33,4 +33,11 @@ public class PrivateEventParticipationRequestController {
                                                                                 @RequestBody @Valid UpdateParticipationRequestStatusDto updateParticipationRequestStatusDto) {
         return participationRequestService.updateParticipationRequestStatus(userId, eventId, updateParticipationRequestStatusDto);
     }
+
+    @GetMapping("/check")
+    @ResponseStatus(HttpStatus.OK)
+    public Boolean checkParticipationRequestConfirmed(@PathVariable @Positive Long userId,
+                                                      @PathVariable @Positive Long eventId) {
+        return participationRequestService.checkParticipationRequestConfirmed(userId, eventId);
+    }
 }
