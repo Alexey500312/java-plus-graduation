@@ -17,4 +17,6 @@ public interface ParticipationRequestService {
 
     ResultParticipationRequestStatusDto updateParticipationRequestStatus(
             Long userId, long eventId, UpdateParticipationRequestStatusDto updateParticipationRequestStatusDto);
+
+    Boolean checkParticipationRequestConfirmed(Long userId, Long eventId);
 }

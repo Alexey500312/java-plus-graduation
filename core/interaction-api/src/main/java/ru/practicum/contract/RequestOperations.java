@@ -21,4 +21,9 @@ public interface RequestOperations {
     ResultParticipationRequestStatusDto updateParticipationRequestStatus(@RequestBody @Valid UpdateParticipationRequestStatusDto updateParticipationRequestStatusDto,
                                                                          @PathVariable @Positive Long userId,
                                                                          @PathVariable @Positive Long eventId);
+
+    @GetMapping("/users/{userId}/events/{eventId}/requests/check")
+    @ResponseStatus(HttpStatus.OK)
+    public Boolean checkParticipationRequestConfirmed(@PathVariable @Positive Long userId,
+                                                      @PathVariable @Positive Long eventId);
 }

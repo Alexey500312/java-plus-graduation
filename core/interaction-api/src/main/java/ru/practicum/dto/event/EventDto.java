@@ -93,7 +93,7 @@ public class EventDto {
     private EventState state;
 
     /**
-     * Количество просмотров события.
+     * Рейтинг события.
      */
-    private int views;
+    private double rating;
 }
